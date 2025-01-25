@@ -5,7 +5,7 @@
 #![feature(slice_as_chunks, slice_as_array)]
 #![feature(array_try_map)]
 #![allow(incomplete_features)]#![feature(mut_ref)]
-#![allow(non_snake_case, non_upper_case_globals, uncommon_codepoints, confusable_idents)]
+#![allow(non_snake_case, non_upper_case_globals, uncommon_codepoints, confusable_idents, mixed_script_confusables)]
 mod image; use image::load;
 use ui::{Result, size, int2, Widget, EventContext, Event::{self, Key}, vulkan, shader};
 use vulkan::{Context, Commands, Arc, ImageView, Image as GPUImage, image, WriteDescriptorSet, linear};
