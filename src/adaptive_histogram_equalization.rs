@@ -9,11 +9,10 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 	assert!((radius+1+radius) as usize >= bins, "{} {bins}", radius+1+radius);
 	let radius = radius as i32;
 	let mut column_histograms = vec![vec![0; bins as usize]; luminance.size.x as usize]; // ~120M. More efficient to slide : packed add vs indirect scatter add
-	let mut rank = Image::<Box<[u32]>>::zero(luminance.size);
-	for y in -radius..=radius { for x in 0..luminance.size.x { column_histograms[x as usize][luminance[xy{x,y: y.max(0) as u32}] as usize] += 1; } }
-	let [w, h] = luminance.size.signed().into();
-	let stride = luminance.stride as i32; // Slightly less verbose sign casting
+	let mut rank = Image::zero(luminance.size);
+	let ([w, h], stride) = (luminance.size.signed().into(), luminance.stride as i32);
 	assert_eq!(rank.stride as i32, stride);
+	for y in -radius..=radius { for x in 0..luminance.size.x { column_histograms[x as usize][luminance[xy{x,y: y.max(0) as u32}] as usize] += 1; } }
 	let start = std::time::Instant::now();
 	let mut y = 0;
 	loop {
