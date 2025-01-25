@@ -37,7 +37,10 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 			let ref right = columns[(x+radius+1).min(w-1) as usize];
 			let ref left = columns[(x-radius).max(0) as usize];
 			for i in 0..coarse { sums[i] += right.sums[i] - left.sums[i]; }
-			for segment in 0..coarse { for i in 0..fine { bins[segment][i] += right.bins[segment][i] - left.bins[segment][i]; } }
+			for segment in 0..coarse {
+				if right.sums[segment] > 0 { for i in 0..fine { bins[segment][i] += right.bins[segment][i]; } }
+				if left.sums[segment] > 0 { for i in 0..fine { bins[segment][i] -= left.bins[segment][i]; } }
+			}
 		}
 		{ // Last of row iteration (not sliding further right after)
 			let x = w-1;
@@ -71,7 +74,10 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 			let ref left = columns[(x-radius-1).max(0) as usize];
 			let ref right = columns[(x+radius).min(w-1) as usize];
 			for i in 0..coarse { sums[i] += left.sums[i] - right.sums[i]; }
-			for segment in 0..coarse { for i in 0..fine { bins[segment][i] += left.bins[segment][i] - right.bins[segment][i]; } }
+			for segment in 0..coarse {
+				if left.sums[segment] > 0 { for i in 0..fine { bins[segment][i] += left.bins[segment][i]; } }
+				if right.sums[segment] > 0 { for i in 0..fine { bins[segment][i] -= right.bins[segment][i]; } }
+			}
 		}
 		{ // Back to first of row iteration (not sliding further left after)
 			let x = 0;
