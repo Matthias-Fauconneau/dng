@@ -43,23 +43,23 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 	let haze = blur_3::<512>(&image);
 	let min = min(image.data.iter().zip(&haze.data).map(|(image, haze)| image/haze)).unwrap(); // ~ 1/4
 	image.mut_zip_map(&haze, |image, haze| image-min*haze); // Scales haze correction to avoid negative values
-	// Adaptive Histogram Equalization
-	let radius = 1024; //(std::cmp::min(image.size.x, image.size.y) - 1) / 2;
-	let rank = adaptive_histogram_equalization(&image, radius);
-	assert_eq!(image.stride, rank.stride);
-	image.mut_zip_map(&rank, |XYZ@XYZ{Y,..}, &rank| {
-		let L = rank as f32 / (radius+1+radius).pow(2) as f32;
-		assert!(L >= 0. && L <= 1.);
-		let XYZ@XYZ{Y,..} = if Y > 0. { L.powi(3)*XYZ/Y } else { XYZ };
-		assert!(Y >= 0. && Y <= 1.);
-		from_uv_D50(2.*to_uv_D50(XYZ), Y)
-	});
+	if false { // Adaptive Histogram Equalization
+		let radius = 1024; //(std::cmp::min(image.size.x, image.size.y) - 1) / 2;
+		let rank = adaptive_histogram_equalization(&image, radius);
+		assert_eq!(image.stride, rank.stride);
+		image.mut_zip_map(&rank, |XYZ@XYZ{Y,..}, &rank| {
+			let L = rank as f32 / (radius+1+radius).pow(2) as f32;
+			assert!(L >= 0. && L <= 1.);
+			let XYZ@XYZ{Y,..} = if Y > 0. { L.powi(3)*XYZ/Y } else { XYZ };
+			assert!(Y >= 0. && Y <= 1.);
+			from_uv_D50(2.*to_uv_D50(XYZ), Y)
+		});
+	}
 	// Linear sRGB
 	const sRGB_from_XYZD50 : [[f32; 3]; 3] = [[3.1338561, -1.6168667, -0.4906146], [-0.9787684, 1.9161415, 0.0334540], [0.0719450, -0.2289914, 1.4052427]];
 	let image = image.map(|XYZ| rgb::from(mulv(sRGB_from_XYZD50, <[_; _]>::from(XYZ))));
 	// Export
-	// FIXME: copy Orientation tag
-	std::fs::write("../sRGB.linear.jxl", &*jpegxl_rs::encoder_builder().build()?.encode::<_,f32>(&bytemuck::cast_slice::<_,f32>(&image.data), image.size.x, image.size.y)?)?;
+	std::fs::write("../sRGB.linear.jxl", &*jxl::encoder_builder().orientation(u32::from(orientation.to_u16()).try_into()?).build()?.encode::<_,f32>(&bytemuck::cast_slice::<_,f32>(&image.data), image.size.x, image.size.y)?)?;
 	// View
 	let oetf = &sRGB8_OETF12;
 	let image = image.map(|rgb| rgba8::from(rgb.map(|c:f32| oetf8_12(oetf, c.clamp(0., 1.)))));
