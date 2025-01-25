@@ -2,7 +2,7 @@ package = { name='dng', version='0.0.0', edition='2024', description = 'Process 
 
 [features]
 jxl=['dep:jxl-oxide']
-export=['dep:jxl','dep:exif']
+export=['dep:jxl']
 default = ['jxl','export']
 
 [dependencies]
@@ -16,7 +16,6 @@ vulkano = { git='https://github.com/vulkano-rs/vulkano', default-features=false,
 vulkano-spirv = { git='https://github.com/Matthias-Fauconneau/vulkano-spirv' }
 jxl-oxide = { version='*', features=['lcms2'], optional=true }
 jxl = { package='jpegxl-rs', version='*', features=['num-enum'], optional=true }
-exif = { package='little_exif', version='*', optional=true }
 
 [build-dependencies]
 naga = { version='*', features = ['wgsl-in','spv-out'] }
@@ -26,4 +25,4 @@ bytemuck = { version='*' }
 vulkano = { git='https://github.com/Matthias-Fauconneau/vulkano'  } # drm modifier
 
 [patch.crates-io]
-jpegxl-rs = { path='../jpegxl-rs/jpegxl-rs' }
+jpegxl-rs = { git='https://github.com/Matthias-Fauconneau/jpegxl-rs' } # orientation
