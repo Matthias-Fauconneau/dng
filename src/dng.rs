@@ -43,8 +43,8 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 	let haze = blur_3::<512>(&image);
 	let min = min(image.data.iter().zip(&haze.data).map(|(image, haze)| image/haze)).unwrap(); // ~ 1/4
 	image.mut_zip_map(&haze, |image, haze| image-min*haze); // Scales haze correction to avoid negative values
-	if false { // Adaptive Histogram Equalization
-		let radius = 1024; //(std::cmp::min(image.size.x, image.size.y) - 1) / 2;
+	if true { // Adaptive Histogram Equalization
+		let radius = 1024;
 		let rank = adaptive_histogram_equalization(&image, radius);
 		assert_eq!(image.stride, rank.stride);
 		image.mut_zip_map(&rank, |XYZ@XYZ{Y,..}, &rank| {

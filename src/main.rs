@@ -1,9 +1,4 @@
-#![feature(slice_from_ptr_range)] // shader
-#![feature(iterator_try_collect)]
-#![feature(strict_overflow_ops)]
-#![feature(generic_arg_infer)] // <[_;_]>::from
-#![feature(slice_as_chunks, slice_as_array)]
-#![feature(array_try_map)]
+#![feature(slice_from_ptr_range, iterator_try_collect, strict_overflow_ops, generic_arg_infer, slice_as_chunks, slice_as_array, array_try_map, new_zeroed_alloc)]
 #![allow(incomplete_features)]#![feature(mut_ref)]
 #![allow(non_snake_case, non_upper_case_globals, uncommon_codepoints, confusable_idents, mixed_script_confusables)]
 mod image; use image::load;
