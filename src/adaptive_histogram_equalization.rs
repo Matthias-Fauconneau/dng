@@ -1,13 +1,14 @@
 use {vector::{xy, minmax, MinMax}, image::{Image, XYZ}};
 pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, radius: u32) -> Image<Box<[u32]>> { // TODO: SIMD
-	let MinMax{min, max} = minmax(image.data.as_ref().iter().map(|&XYZ{Y,..}| Y)).unwrap();
-	const coarse : usize = 0x20;
-	const fine : usize = 0x20;
-	const Nbins : usize = coarse*fine;
-	assert!(image.size.x as usize*(coarse*fine)*2 <= 64*1024*1024);
-	let luminance = image.as_ref().map(|XYZ{Y,..}| (f32::ceil((Y-min)/(max-min)*(Nbins as f32)-1.)) as u16);
 	let radius = radius as i32;
-	struct Histogram { sums: [u32; coarse], bins: [[u32; fine]; coarse] }
+	let MinMax{min, max} = minmax(image.data.as_ref().iter().map(|&XYZ{Y,..}| Y)).unwrap();
+	const coarse : usize = core::simd::u32x64::LEN;
+	const fine : usize = core::simd::u32x64::LEN;
+	const Nbins : usize = coarse*fine;
+	//assert!(image.size.x <= image.size.y); // FIXME: benchmark compute vs bandwidth tradeoff
+	assert!(image.size.x as usize*(coarse*fine)*4 <= 32*1024*1024);
+	let luminance = image.as_ref().map(|XYZ{Y,..}| (f32::ceil((Y-min)/(max-min)*(Nbins as f32)-1.)) as u16);
+	struct Histogram { sums: core::simd::u32x64, bins: [core::simd::u32x64; coarse] }
 	let mut columns = unsafe{Box::<[Histogram]>::new_zeroed_slice(luminance.size.x as usize).assume_init()};
 	let mut rank = Image::zero(luminance.size);
 	let ([w, h], stride) = (luminance.size.signed().into(), luminance.stride as i32);
@@ -23,11 +24,11 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 	loop {
 		if !(y < h) { break; }
 		println!("{y}");
-		let Histogram{mut sums, mut bins} = Histogram{sums: [0; _], bins: [[0; _]; _]};
+		let Histogram{mut sums, mut bins} = Histogram{sums: [0; _].into(), bins: [[0; _].into(); _]};
 		for x in -radius..=radius { 
 			let ref column = columns[x.max(0) as usize];
-			for i in 0..coarse { sums[i] += column.sums[i]; }
-			for segment in 0..coarse { for i in 0..fine { bins[segment][i] += column.bins[segment][i]; } }
+			sums += column.sums;
+			for segment in 0..coarse { bins[segment] += column.bins[segment]; }
 		}
 		for x in 0..w-1 {
 			let index = (y*stride+x) as usize;
@@ -36,10 +37,10 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 			// Slide right
 			let ref right = columns[(x+radius+1).min(w-1) as usize];
 			let ref left = columns[(x-radius).max(0) as usize];
-			for i in 0..coarse { sums[i] += right.sums[i] - left.sums[i]; }
+			sums += right.sums - left.sums;
 			for segment in 0..coarse {
-				if right.sums[segment] > 0 { for i in 0..fine { bins[segment][i] += right.bins[segment][i]; } }
-				if left.sums[segment] > 0 { for i in 0..fine { bins[segment][i] -= left.bins[segment][i]; } }
+				if right.sums[segment] > 0 { bins[segment] += right.bins[segment]; }
+				if left.sums[segment] > 0 { bins[segment] -= left.bins[segment]; }
 			}
 		}
 		{ // Last of row iteration (not sliding further right after)
@@ -60,11 +61,11 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 		}
 		y += 1;
 		if !(y < h) { break; }
-		let Histogram{mut sums, mut bins} = Histogram{sums: [0; _], bins: [[0; _]; _]};
+		let Histogram{mut sums, mut bins} = Histogram{sums: [0; _].into(), bins: [[0; _].into(); _]};
 		for x in (w-1)-radius..=(w-1)+radius {
 			let ref column = columns[x.min(w-1) as usize];
-			for i in 0..coarse { sums[i] += column.sums[i]; }
-			for segment in 0..coarse { for i in 0..fine { bins[segment][i] += column.bins[segment][i]; } }
+			sums += column.sums;
+			for segment in 0..coarse { bins[segment] += column.bins[segment]; }
 		}
 		for x in (1..w).into_iter().rev() {
 			let index = (y*stride+x) as usize;
@@ -73,10 +74,10 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 			// Slide left
 			let ref left = columns[(x-radius-1).max(0) as usize];
 			let ref right = columns[(x+radius).min(w-1) as usize];
-			for i in 0..coarse { sums[i] += left.sums[i] - right.sums[i]; }
+			sums += left.sums - right.sums;
 			for segment in 0..coarse {
-				if left.sums[segment] > 0 { for i in 0..fine { bins[segment][i] += left.bins[segment][i]; } }
-				if right.sums[segment] > 0 { for i in 0..fine { bins[segment][i] -= right.bins[segment][i]; } }
+				if left.sums[segment] > 0 { bins[segment] += left.bins[segment]; }
+				if right.sums[segment] > 0 { bins[segment] -= right.bins[segment]; }
 			}
 		}
 		{ // Back to first of row iteration (not sliding further left after)
