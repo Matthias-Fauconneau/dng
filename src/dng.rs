@@ -49,7 +49,9 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 	//let image = image.map(|XYZ@XYZ{Y,..}| {
 	let image = Image::from_iter(image.size, image.data.into_iter().zip(xy.data).map(|(XYZ@XYZ{Y,..},_/*xy{x,y}*/)| {
 		let rank = cdf[f32::ceil((Y-min.Y)/(max.Y-min.Y)*bins as f32-1.) as usize];
-		let XYZ@XYZ{Y,..} = if Y > 0. { (rank as f32 / pixel_count as f32)*XYZ/Y } else { XYZ };
+		let L = rank as f32 / pixel_count as f32;
+		assert!(L >= 0. && L <= 1.);
+		let XYZ@XYZ{Y,..} = if Y > 0. { L.powi(3)*XYZ/Y } else { XYZ };
 		assert!(Y >= 0. && Y <= 1.);
 		//XYZ{X: f*x, Y: f*y, Z: f*z}
 
@@ -76,15 +78,28 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 		let [x, y] = [x0+s*dx/r, y0+s*dy/r];
 		let z = 1.-x-y;*/
 	}));
+
+	// FIXME: linear XYZ export
+
 	//let mean = image.data.iter().copied().sum::<XYZ<f32>>() / image.data.len() as f32;
-	let scale = 1.;//(1./2.)*XYZ::<f32>::from(image.data.len() as f64 / image.data.iter().map(|&XYZ| XYZ::<f64>::from(XYZ)).sum::<XYZ<f64>>());
+	let scale = 1.; //(1./2.)*XYZ::<f32>::from(image.data.len() as f64 / image.data.iter().map(|&XYZ| XYZ::<f64>::from(XYZ)).sum::<XYZ<f64>>());
 	const sRGB_from_XYZD50 : [[f32; 3]; 3] = [[3.1338561, -1.6168667, -0.4906146], [-0.9787684, 1.9161415, 0.0334540], [0.0719450, -0.2289914, 1.4052427]];
-	let image = image.map(|XYZ| rgba8::from(rgb::from(mulv(sRGB_from_XYZD50, <[_; _]>::from(scale*XYZ)).map(|c| oetf8_12(oetf, c.clamp(0., 1.))))));
+	let image = image.map(|XYZ| rgb::from(mulv(sRGB_from_XYZD50, <[_; _]>::from(scale*XYZ))));
+
+	std::fs::write("../sRGB.linear.jxl", &*jpegxl_rs::encoder_builder().build()?.encode::<_,f32>(&bytemuck::cast_slice::<_,f32>(&image.data), image.size.x, image.size.y)?)?;
+
+	let image = image.map(|rgb| rgba8::from(rgb.map(|c:f32| oetf8_12(oetf, c.clamp(0., 1.)))));
+
 	use Orientation::*;
 	let image = match orientation {
 		Normal => image,
 		Rotate90 => Image::from_xy({let xy{x,y} = image.size; xy{x: y, y: x}}, |xy{x,y}| image[xy{x: y, y: image.size.y-1-x}]),
 		o => { eprintln!("{o:#?}"); image },
 	};
+
+	/*use {zune_jpegxl::JxlSimpleEncoder, zune_core::{options::EncoderOptions, colorspace::ColorSpace, bit_depth::BitDepth}};
+	let rgb = image.data.iter().map(|&rgba{r,g,b,..}| [r,g,b].into_iter()).flatten().collect::<Box<_>>();
+	std::fs::write("../sRGB.8.jxl", JxlSimpleEncoder::new(&rgb, EncoderOptions::new(image.size.x as usize, image.size.y as usize, ColorSpace::RGB, BitDepth::Eight)).encode().unwrap())?;*/
+
 	Ok(image)
 }
