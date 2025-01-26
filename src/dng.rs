@@ -17,6 +17,7 @@ use rawler::{rawsource::RawSource, get_decoder, RawImage, RawImageData, Orientat
 use rawler::{imgop::xyz::Illuminant::D65, tags::DngTag::OpcodeList2};
 
 pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Box<dyn std::error::Error>> {
+	let start = std::time::Instant::now();
 	let ref file = RawSource::new(path.as_ref())?;
 	let decoder = get_decoder(file)?;
 	let RawImage{whitelevel, data: RawImageData::Integer(data), width, height, wb_coeffs: rcp_as_shot_neutral, orientation, camera: Camera{forward_matrix, ..}, ..}
@@ -71,5 +72,6 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 		o => { eprintln!("{o:#?}"); image },
 	};
 
+	println!("{}ms", start.elapsed().as_millis());
 	Ok(image)
 }

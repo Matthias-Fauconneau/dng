@@ -24,22 +24,21 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 		column.sums[bin/fine] += 1;
 		column.bins[bin/fine][bin%fine] += 1;
 	} }
+	let Histogram{mut sums, mut bins} = Histogram{sums: ZERO, bins: [ZERO; _]};
+	for x in -radius..=radius {
+		let ref column = columns[x.max(0) as usize];
+		sums += column.sums;
+		for segment in 0..coarse { bins[segment] += column.bins[segment]; }
+	}
 	fn rdtsc() -> u64 { unsafe{core::arch::x86_64::_rdtsc()} }
+	fn count(start: u64, counter: &mut u64) -> u64 { let rdtsc = rdtsc(); *counter += rdtsc-start; rdtsc }
 	let start = rdtsc();
 	let [ref mut misc, ref mut first, ref mut last, ref mut forward, ref mut reverse, ref mut down] = [0; _]; 
-	let mut y = 0;
 	let mut last_start = rdtsc();
-	fn count(start: u64, counter: &mut u64) -> u64 { let rdtsc = rdtsc(); *counter += rdtsc-start; rdtsc }
+	let mut y = 0;
 	loop {
 		if !(y < h) { break; }
-		println!("{y}");
 		let start = count(last_start, misc);
-		let Histogram{mut sums, mut bins} = Histogram{sums: ZERO, bins: [ZERO; _]};
-		for x in -radius..=radius { 
-			let ref column = columns[x.max(0) as usize];
-			sums += column.sums;
-			for segment in 0..coarse { bins[segment] += column.bins[segment]; }
-		}
 		let start = count(start, first);
 		for x in 0..w-1 {
 			let index = (y*stride+x) as usize;
@@ -65,7 +64,7 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 		}
 		let start = count(start, last);
 		// Slide down
-		for x in 0..w {
+		for x in 0..(w-1)-radius {
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
 			let ref mut column = columns[x as usize];
 			column.sums[bin/fine] -= 1;
@@ -74,15 +73,36 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 			column.sums[bin/fine] += 1;
 			column.bins[bin/fine][bin%fine] += 1;
 		}
+		for x in (w-1)-radius..w-1 {
+			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
+			let ref mut column = columns[x as usize];
+			column.sums[bin/fine] -= 1;
+			sums[bin/fine] -= 1;
+			column.bins[bin/fine][bin%fine] -= 1;
+			bins[bin/fine][bin%fine] -= 1;
+			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
+			column.sums[bin/fine] += 1;
+			sums[bin/fine] += 1;
+			column.bins[bin/fine][bin%fine] += 1;
+			bins[bin/fine][bin%fine] += 1;
+		}
+		{
+			let x = w - 1;
+			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
+			let ref mut column = columns[x as usize];
+			column.sums[bin/fine] -= 1;
+			sums[bin/fine] -= 1+radius as u32;
+			column.bins[bin/fine][bin%fine] -= 1;
+			bins[bin/fine][bin%fine] -= 1+radius as u32;
+			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
+			column.sums[bin/fine] += 1;
+			sums[bin/fine] += 1+radius as u32;
+			column.bins[bin/fine][bin%fine] += 1;
+			bins[bin/fine][bin%fine] += 1+radius as u32;
+		}
 		let start = count(start, down);
 		y += 1;
 		if !(y < h) { break; }
-		let Histogram{mut sums, mut bins} = Histogram{sums: [0; _].into(), bins: [[0; _].into(); _]};
-		for x in (w-1)-radius..=(w-1)+radius {
-			let ref column = columns[x.min(w-1) as usize];
-			sums += column.sums;
-			for segment in 0..coarse { bins[segment] += column.bins[segment]; }
-		}
 		let start = count(start, first);
 		for x in (1..w).into_iter().rev() {
 			let index = (y*stride+x) as usize;
@@ -108,7 +128,34 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 		}
 		let start = count(start, last);
 		// Slide down
-		for x in 0..w {
+		{
+			let x = 0;
+			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
+			let ref mut column = columns[x as usize];
+			column.sums[bin/fine] -= 1;
+			sums[bin/fine] -= 1+radius as u32;
+			column.bins[bin/fine][bin%fine] -= 1;
+			bins[bin/fine][bin%fine] -= 1+radius as u32;
+			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
+			column.sums[bin/fine] += 1;
+			sums[bin/fine] += 1+radius as u32;
+			column.bins[bin/fine][bin%fine] += 1;
+			bins[bin/fine][bin%fine] += 1+radius as u32;
+		}
+		for x in 1..=radius {
+			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
+			let ref mut column = columns[x as usize];
+			column.sums[bin/fine] -= 1;
+			sums[bin/fine] -= 1;
+			column.bins[bin/fine][bin%fine] -= 1;
+			bins[bin/fine][bin%fine] -= 1;
+			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
+			column.sums[bin/fine] += 1;
+			sums[bin/fine] += 1;
+			column.bins[bin/fine][bin%fine] += 1;
+			bins[bin/fine][bin%fine] += 1;
+		}
+		for x in radius+1..w {
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
 			let ref mut column = columns[x as usize];
 			column.sums[bin/fine] -= 1;
@@ -122,8 +169,8 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 	}
 	let total = rdtsc()-start;
 	for (&mut time, id) in [misc, first, last, forward, reverse, down].into_iter().zip(["misc", "first", "last", "forward", "reverse", "down"]) {
-		if time > total/100 { println!("{id}: {:.0}%", 100.*time as f64/total as f64); }
+		if time > 5*total/100 { print!("{id}: {:.0}%, ", 100.*time as f64/total as f64); }
 	}
-	println!("{}ms", start_time.elapsed().as_millis());
+	println!(", {}ms", start_time.elapsed().as_millis());
 	rank
 }
