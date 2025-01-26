@@ -36,31 +36,21 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 		for segment in 0..coarse { bins[segment] += column.bins[segment]; }
 	}
 	let n = (radius+1+radius).pow(2) as u32;
-	fn contrast_limited(histogram_total_sum: u32, sums: u32x64, bins: &[u32x64; coarse], bin: usize) -> u32 { // FIXME: Lookup masks instead of INDEX<splat ?
+	fn contrast_limited(histogram_total_sum: u32, mut sums: u32x64, bins: &[u32x64; coarse], bin: usize) -> u32 { // FIXME: Lookup masks instead of INDEX<splat ?
 		assert!(sums.reduce_sum() <= histogram_total_sum, "{histogram_total_sum} {sums:?}");
 		assert!(bin+1 <= Nbins);
 		const clip_limit : u32 = 0x1000;
 		const clip_limit64 : u32x64 = u32x64::from_array([clip_limit; _]); // FIXME: splat might be more efficient
-		let mut clipped_sums = sums;
-		if /*(sums > C).any()*/true {
-			for segment in 0..coarse { if unlikely(sums[segment] > clip_limit) { // ~ 6%
-				let clipped_sum = bins[segment].simd_min(clip_limit64).reduce_sum(); 
-				assert!(clipped_sum <= sums[segment], "{segment} {:?} {:?} {} {clipped_sum}", bins[segment], bins[segment].simd_min(clip_limit64), sums[segment]);
-				assert!(clipped_sums[segment].min(clip_limit) <= clipped_sum, "{clipped_sum} {}", clipped_sums[segment]);
-				// if clipped_sums[segment] == clipped_sum: false positive: nothing to clip but still had to check in case
-				//if clipped_sums[segment] < clipped_sum: better check or replace with same value ?
-				clipped_sums[segment] = clipped_sum;
+		//if sums.simd_ge(clip_limit64).any() {
+			for segment in 0..coarse { if unlikely(sums[segment] > clip_limit) { // ~ 4/64
+				sums[segment] = bins[segment].simd_min(clip_limit64).reduce_sum();
 			} }
-		}
-		let clipped_sum = clipped_sums.reduce_sum();
-		assert!(clipped_sum <= histogram_total_sum, "{clipped_sum} {histogram_total_sum} {clipped_sums:?} {sums:?}");
+		//}
+		let clipped_sum = sums.reduce_sum();
 		let clipped_count = histogram_total_sum - clipped_sum;
-		let clipped_sum_up_to_bin = mask32x64::from(INDEX.simd_lt(u8x64::splat((bin/fine) as u8))).select(clipped_sums, ZERO).reduce_sum() + mask32x64::from(INDEX.simd_le(u8x64::splat((bin%fine) as u8))).select(bins[bin/fine].simd_min(clip_limit64), ZERO).reduce_sum();
-		assert!(clipped_sum_up_to_bin + clipped_count <= histogram_total_sum);
+		let clipped_sum_up_to_bin = mask32x64::from(INDEX.simd_lt(u8x64::splat((bin/fine) as u8))).select(sums, ZERO).reduce_sum() + mask32x64::from(INDEX.simd_le(u8x64::splat((bin%fine) as u8))).select(bins[bin/fine].simd_min(clip_limit64), ZERO).reduce_sum();
 		let clipped_count_up_to_bin = (clipped_count as u64 * (bin+1) as u64 / Nbins as u64) as u32;
-		assert!(clipped_count_up_to_bin <= histogram_total_sum, "{clipped_count_up_to_bin} <= {histogram_total_sum} {clipped_count} {bin} {Nbins}");
-	 	let contrast_limited = clipped_sum_up_to_bin + clipped_count_up_to_bin;
-		assert!(contrast_limited <= histogram_total_sum, "{contrast_limited} <= {histogram_total_sum} {clipped_sum_up_to_bin} {clipped_count_up_to_bin}");
+		let contrast_limited = clipped_sum_up_to_bin + clipped_count_up_to_bin;
 		contrast_limited
 	}
 	let start = now();
