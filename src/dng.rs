@@ -65,11 +65,11 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 	was("dehaze");
 	if true { // Adaptive Histogram Equalization
 		let radius = (std::cmp::min(image.size.x, image.size.y) - 1) / 2;
-		let rank = adaptive_histogram_equalization(&image, radius);
-		assert_eq!(image.stride, rank.stride);
-		image.mut_zip_map(&rank, |XYZ@XYZ{Y,..}, &rank| {
-			let L = rank as f32 / (radius+1+radius).pow(2) as f32;
-			assert!(L >= 0. && L <= 1.);
+		let C = contrast_limited_adaptive_histogram_equalization(&image, radius);
+		assert_eq!(image.stride, C.stride);
+		image.mut_zip_map(&C, |XYZ@XYZ{Y,..}, &C| {
+			let L = C as f32 / (radius+1+radius).pow(2) as f32;
+			assert!(L >= 0. && L <= 1., "{L} {C}");
 			let XYZ@XYZ{Y,..} = if Y > 0. { L.powi(3)*XYZ/Y } else { XYZ };
 			assert!(Y >= 0. && Y <= 1.);
 			from_uv_D50(2.*to_uv_D50(XYZ), Y)
