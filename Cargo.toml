@@ -1,9 +1,9 @@
 package = { name='dng', version='0.0.0', edition='2024', description = 'Process DNG image'}
 
 [features]
-jxl=['dep:jxl-oxide']
-export=['dep:jxl']
-default = ['jxl','export']
+JPEG-XL=['dep:jxl-oxide']
+export=['dep:JPEG-XL']
+default = ['JPEG-XL','export']
 
 [dependencies]
 bytemuck='*'
@@ -15,7 +15,7 @@ ui = { git='https://github.com/Matthias-Fauconneau/ui' }
 vulkano = { git='https://github.com/vulkano-rs/vulkano', default-features=false, features=['macros'] } # same version as ui (which needs drm modifier from git version)
 vulkano-spirv = { git='https://github.com/Matthias-Fauconneau/vulkano-spirv' }
 jxl-oxide = { version='*', features=['lcms2'], optional=true }
-jxl = { package='jpegxl-rs', version='*', features=['num-enum'], optional=true }
+JPEG-XL = { package='jpegxl-rs', version='*', features=['num-enum'], optional=true }
 
 [build-dependencies]
 naga = { version='*', features = ['wgsl-in','spv-out'] }
@@ -25,4 +25,6 @@ bytemuck = { version='*' }
 vulkano = { git='https://github.com/Matthias-Fauconneau/vulkano'  } # drm modifier
 
 [patch.crates-io]
-jpegxl-rs = { git='https://github.com/Matthias-Fauconneau/jpegxl-rs' } # orientation
+#jpegxl-rs = { git='https://github.com/Matthias-Fauconneau/jpegxl-rs' } # orientation
+#[patch.'https://github.com/Matthias-Fauconneau/jpegxl-rs']
+jpegxl-rs = { path='../jpegxl-rs/jpegxl-rs' } # trim silly but cute encode speed enum

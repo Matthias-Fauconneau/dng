@@ -2,6 +2,11 @@ use core::simd::{cmp::SimdPartialOrd, num::SimdUint, u8x64, u32x64, mask32x64};
 const ZERO : u32x64  = u32x64::from_array([0; _]);
 const fn enumerate<const N: usize>() -> [u8; N] { let mut a = [0; N]; let mut i = 0; while i < N { a[i] = i as _; i += 1; } a }
 const INDEX: u8x64 = u8x64::from_array(enumerate());
+pub struct Instant(u64);
+pub fn now() -> Instant { Instant(unsafe{core::arch::x86_64::_rdtsc()}) }
+#[derive(Clone,Copy)] pub struct Duration(u64);
+pub fn fence(since: Instant, elapsed: &mut Duration) -> Instant { let now = now(); elapsed.0 += now.0-since.0; now }
+macro_rules! id { [$($id:ident),+] => { [ $((std::stringify!($id), *$id)),+ ] } }
 use {vector::{xy, minmax, MinMax}, image::{Image, XYZ}};
 pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, radius: u32) -> Image<Box<[u32]>> { // TODO: SIMD
 	let start_time = std::time::Instant::now();
@@ -30,16 +35,13 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 		sums += column.sums;
 		for segment in 0..coarse { bins[segment] += column.bins[segment]; }
 	}
-	fn rdtsc() -> u64 { unsafe{core::arch::x86_64::_rdtsc()} }
-	fn count(start: u64, counter: &mut u64) -> u64 { let rdtsc = rdtsc(); *counter += rdtsc-start; rdtsc }
-	let start = rdtsc();
-	let [ref mut misc, ref mut first, ref mut last, ref mut forward, ref mut reverse, ref mut down] = [0; _]; 
-	let mut last_start = rdtsc();
+	let start = now();
+	let [ref mut down, ref mut forward, ref mut reverse] = [Duration(0); _]; 
+	let mut last_start = now();
 	let mut y = 0;
 	loop {
 		if !(y < h) { break; }
-		let start = count(last_start, misc);
-		let start = count(start, first);
+		let start = fence(last_start, down);
 		for x in 0..w-1 {
 			let index = (y*stride+x) as usize;
 			let bin = luminance[index] as usize;
@@ -55,14 +57,13 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 				if left.sums[segment] > 0 { bins[segment] -= left.bins[segment]; }
 			}
 		}
-		let start = count(start, forward);
+		let start = fence(start, forward);
 		{ // Last of row iteration (not sliding further right after)
 			let x = w-1;
 			let index = (y*stride+x) as usize;
 			let bin = luminance[index] as usize;
 			rank[index] = sums[0..bin/fine].iter().sum::<u32>()+bins[bin/fine][0..=bin%fine].iter().sum::<u32>();
 		}
-		let start = count(start, last);
 		// Slide down
 		for x in 0..(w-1)-radius {
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
@@ -100,10 +101,9 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 			column.bins[bin/fine][bin%fine] += 1;
 			bins[bin/fine][bin%fine] += 1+radius as u32;
 		}
-		let start = count(start, down);
 		y += 1;
 		if !(y < h) { break; }
-		let start = count(start, first);
+		let start = fence(start, down);
 		for x in (1..w).into_iter().rev() {
 			let index = (y*stride+x) as usize;
 			let bin = luminance[index] as usize;
@@ -119,14 +119,13 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 				if right.sums[segment] > 0 { bins[segment] -= right.bins[segment]; }
 			}
 		}
-		let start = count(start, reverse);
+		last_start = fence(start, reverse);
 		{ // Back to first of row iteration (not sliding further left after)
 			let x = 0;
 			let index = (y*stride+x) as usize;
 			let bin = luminance[index] as usize;
 			rank[index] = sums[0..bin/fine].iter().sum::<u32>()+bins[bin/fine][0..=bin%fine].iter().sum::<u32>();
 		}
-		let start = count(start, last);
 		// Slide down
 		{
 			let x = 0;
@@ -164,13 +163,10 @@ pub fn adaptive_histogram_equalization(image: &Image<impl AsRef<[XYZ<f32>]>>, ra
 			column.sums[bin/fine] += 1;
 			column.bins[bin/fine][bin%fine] += 1;
 		}
-		last_start = count(start, down);
 		y += 1;
 	}
-	let total = rdtsc()-start;
-	for (&mut time, id) in [misc, first, last, forward, reverse, down].into_iter().zip(["misc", "first", "last", "forward", "reverse", "down"]) {
-		if time > 5*total/100 { print!("{id}: {:.0}%, ", 100.*time as f64/total as f64); }
-	}
-	println!(", {}ms", start_time.elapsed().as_millis());
+	let total = now().0-start.0;
+	for (id, time) in id![down, forward, reverse] { if time.0 > 5*total/100 { print!("{id}: {:.0}%, ", 100.*time.0 as f64/total as f64); } }
+	println!("{}ms", start_time.elapsed().as_millis());
 	rank
 }

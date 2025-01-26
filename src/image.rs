@@ -15,7 +15,7 @@ pub fn load(ref path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>
 	}
 	
 	//if &start == b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a"
-	#[cfg(feature="jxl")] {
+	#[cfg(feature="JPEG-XL")] {
 		use {image::{xy, rgb8}, jxl_oxide::{JxlImage, EnumColourEncoding, color}};
 		if let Ok(mut image) = JxlImage::builder().open(path) {
 			let size = xy{x: image.width(), y: image.height()};
