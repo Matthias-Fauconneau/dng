@@ -24,14 +24,14 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 	let ([w, h], stride) = (luminance.size.signed().into(), luminance.stride as i32);
 	assert_eq!(rank.stride as i32, stride);
 	for y in -radius..=radius { for x in 0..luminance.size.x {
-		let bin = luminance[xy{x,y: y.max(0) as u32}] as usize;
+		let bin = luminance[xy{x, y: y.max(0) as u32}] as usize;
 		let ref mut column = columns[x as usize];
 		column.sums[bin/fine] += 1;
 		column.bins[bin/fine][bin%fine] += 1;
 	} }
 	let Histogram{mut sums, mut bins} = Histogram{sums: ZERO, bins: [ZERO; _]};
 	for x in -radius..=radius {
-		let ref column = columns[x.max(0) as usize];
+		let ref column = columns[x.abs() as usize];
 		sums += column.sums;
 		for segment in 0..coarse { bins[segment] += column.bins[segment]; }
 	}
@@ -63,8 +63,8 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 			let bin = luminance[index] as usize;
 			rank[index] = contrast_limited(n, sums, &bins, bin);
 			// Slide right
-			let ref right = columns[(x+radius+1).min(w-1) as usize];
-			let ref left = columns[(x-radius).max(0) as usize];
+			let ref right = columns[{let x = x+radius+1; if  x<=w-1 {x} else{w-1-(x-(w-1))}} as usize];
+			let ref left = columns[(x-radius).abs() as usize];
 			sums += right.sums - left.sums;
 			for segment in 0..coarse {
 				if right.sums[segment] > 0 { bins[segment] += right.bins[segment]; }
@@ -92,28 +92,28 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
 			let ref mut column = columns[x as usize];
 			column.sums[bin/fine] -= 1;
-			sums[bin/fine] -= 1;
+			sums[bin/fine] -= 2;
 			column.bins[bin/fine][bin%fine] -= 1;
-			bins[bin/fine][bin%fine] -= 1;
+			bins[bin/fine][bin%fine] -= 2;
 			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
 			column.sums[bin/fine] += 1;
-			sums[bin/fine] += 1;
+			sums[bin/fine] += 2;
 			column.bins[bin/fine][bin%fine] += 1;
-			bins[bin/fine][bin%fine] += 1;
+			bins[bin/fine][bin%fine] += 2;
 		}
 		{
 			let x = w - 1;
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
 			let ref mut column = columns[x as usize];
 			column.sums[bin/fine] -= 1;
-			sums[bin/fine] -= 1+radius as u32;
+			sums[bin/fine] -= 1 as u32;
 			column.bins[bin/fine][bin%fine] -= 1;
-			bins[bin/fine][bin%fine] -= 1+radius as u32;
+			bins[bin/fine][bin%fine] -= 1 as u32;
 			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
 			column.sums[bin/fine] += 1;
-			sums[bin/fine] += 1+radius as u32;
+			sums[bin/fine] += 1 as u32;
 			column.bins[bin/fine][bin%fine] += 1;
-			bins[bin/fine][bin%fine] += 1+radius as u32;
+			bins[bin/fine][bin%fine] += 1 as u32;
 		}
 		y += 1;
 		if !(y < h) { break; }
@@ -123,8 +123,8 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 			let bin = luminance[index] as usize;
 			rank[index] = contrast_limited(n, sums, &bins, bin);
 			// Slide left
-			let ref left = columns[(x-radius-1).max(0) as usize];
-			let ref right = columns[(x+radius).min(w-1) as usize];
+			let ref left = columns[(x-radius-1).abs() as usize];
+			let ref right = columns[{let x = x+radius; if  x<=w-1 {x} else{w-1-(x-(w-1))}} as usize];
 			sums += left.sums - right.sums;
 			for segment in 0..coarse {
 				if left.sums[segment] > 0 { bins[segment] += left.bins[segment]; }
@@ -144,27 +144,27 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
 			let ref mut column = columns[x as usize];
 			column.sums[bin/fine] -= 1;
-			sums[bin/fine] -= 1+radius as u32;
+			sums[bin/fine] -= 1 as u32;
 			column.bins[bin/fine][bin%fine] -= 1;
-			bins[bin/fine][bin%fine] -= 1+radius as u32;
+			bins[bin/fine][bin%fine] -= 1 as u32;
 			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
 			column.sums[bin/fine] += 1;
-			sums[bin/fine] += 1+radius as u32;
+			sums[bin/fine] += 1 as u32;
 			column.bins[bin/fine][bin%fine] += 1;
-			bins[bin/fine][bin%fine] += 1+radius as u32;
+			bins[bin/fine][bin%fine] += 1 as u32;
 		}
 		for x in 1..=radius {
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
 			let ref mut column = columns[x as usize];
 			column.sums[bin/fine] -= 1;
-			sums[bin/fine] -= 1;
+			sums[bin/fine] -= 2;
 			column.bins[bin/fine][bin%fine] -= 1;
-			bins[bin/fine][bin%fine] -= 1;
+			bins[bin/fine][bin%fine] -= 2;
 			let bin = luminance[((y+radius+1).min(h-1)*stride+x) as usize] as usize;
 			column.sums[bin/fine] += 1;
-			sums[bin/fine] += 1;
+			sums[bin/fine] += 2;
 			column.bins[bin/fine][bin%fine] += 1;
-			bins[bin/fine][bin%fine] += 1;
+			bins[bin/fine][bin%fine] += 2;
 		}
 		for x in radius+1..w {
 			let bin = luminance[((y-radius).max(0)*stride+x) as usize] as usize;
