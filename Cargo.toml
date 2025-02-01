@@ -28,3 +28,6 @@ vulkano = { git='https://github.com/Matthias-Fauconneau/vulkano'  } # drm modifi
 #jpegxl-rs = { git='https://github.com/Matthias-Fauconneau/jpegxl-rs' } # orientation
 #[patch.'https://github.com/Matthias-Fauconneau/jpegxl-rs']
 jpegxl-rs = { path='../jpegxl-rs/jpegxl-rs' } # trim silly but cute encode speed enum
+
+[patch.'https://github.com/Matthias-Fauconneau/ui']
+ui={path='../ui'}

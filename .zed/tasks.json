@@ -4,10 +4,10 @@
 		"command": "cargo", "args": ["run" , "--release", "--", "~/PXL_20241214_152524941.RAW-02.ORIGINAL.raw", "~/PXL_20241214_152524941.RAW-01.COVER.jpg"],
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
-		"reveal": "always",
+		"reveal": "no_focus",
 		"reveal_target": "dock",
 		"hide": "never",
 		"show_summary": false,
-		"show_command": false
+		"show_command": false,
 	}
 ]

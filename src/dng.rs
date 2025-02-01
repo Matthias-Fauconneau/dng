@@ -60,19 +60,19 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 	was("demosaic");
 	// Dehaze
 	let haze = blur_3::<512>(&image);
-	let min = min(image.data.iter().zip(&haze.data).map(|(image, haze)| image/haze)).unwrap(); // ~ 1/4
-	image.mut_zip_map(&haze, |image, haze| image-min*haze); // Scales haze correction to avoid negative values
+	let min = if true { min(image.data.iter().zip(&haze.data).map(|(image, haze)| image/haze)).unwrap().into_iter().min_by(f32::total_cmp).unwrap() } else { 0. }; // ~ 1/4
+	image.mut_zip_map(&haze, |image, &haze| image-min*haze); // Scales haze correction to avoid negative values
 	was("dehaze");
 	if true { // Adaptive Histogram Equalization
-		let radius = 486; //(std::cmp::min(image.size.x, image.size.y) - 1) / 2;
+		let radius = (std::cmp::max(image.size.x, image.size.y) - 1) / 2;
 		let contrast_limited = contrast_limited_adaptive_histogram_equalization(&image, radius);
 		assert_eq!(image.stride, contrast_limited.stride);
 		image.mut_zip_map(&contrast_limited, |XYZ@XYZ{Y,..}, &contrast_limited| {
 			let L = contrast_limited as f32 / (radius+1+radius).pow(2) as f32;
 			assert!(L >= 0. && L <= 1.);
-			let XYZ@XYZ{Y,..} = if Y > 0. { L.powi(3)*XYZ/Y } else { XYZ };
+			let XYZ@XYZ{Y,..} = if Y > 0. { L*XYZ/Y } else { XYZ };
 			assert!(Y >= 0. && Y <= 1.);
-			//let XYZ@XYZ{Y,..} = XYZ;
+			//let XYZ@XYZ{Y,..} = 2.*XYZ;
 			from_uv_D50(2.*to_uv_D50(XYZ), Y)
 		});
 		was("equalization");

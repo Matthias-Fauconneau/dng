@@ -37,7 +37,7 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 	}
 	let n = (radius+1+radius).pow(2) as u32;
 	fn contrast_limited(histogram_total_sum: u32, mut sums: u32x64, bins: &[u32x64; coarse], bin: usize) -> u32 { // FIXME: Lookup masks instead of INDEX<splat ?
-		const clip_limit : u32 = 0x1000;
+		const clip_limit : u32 = 0x2000;
 		const clip_limit64 : u32x64 = u32x64::from_array([clip_limit; _]);
 		//if sums.simd_ge(clip_limit64).any() {
 			for segment in 0..coarse { if unlikely(sums[segment] > clip_limit) { // ~ 4/64
