@@ -1,20 +1,4 @@
 pub fn default<T: Default>() -> T { Default::default() }
-struct Profile {
-	start: std::time::Instant,
-	last: std::time::Instant,
-	profile: Vec<(&'static str, std::time::Duration)>,
-}
-impl Profile {
-	pub fn start() -> Self { let start = std::time::Instant::now(); Self{start, last: start, profile: vec![]} }
-	pub fn fence(&mut self, was: &'static str) { let now = std::time::Instant::now(); self.profile.push((was, now-self.last)); self.last = now; }
-	pub fn print_profile(&self) {
-		let total = self.last-self.start;
-		for &(id, time) in &self.profile { if time > 5*total/100 { print!("{id}: {:.0}%, ", 100.*time.as_secs_f64()/total.as_secs_f64()); } }
-		println!(", {}ms", total.as_millis());
-	}
-}
-impl FnOnce<(&'static str,)> for Profile { type Output = (); extern "rust-call" fn call_once(mut self, (was,): (&'static str,)) -> Self::Output { self.fence(was) }  }
-impl FnMut<(&'static str,)> for Profile { extern "rust-call" fn call_mut(&mut self, (was,): (&'static str,)) -> Self::Output { self.fence(was) } }
 
 mod vector_uv { vector::vector!(2 uv T T, u v, U V); } pub use vector_uv::uv;
 const fn uv(XYZ{X,Y,Z}: XYZ<f32>) -> uv<f32> { let d = X + 15.*Y + 3.*Z; uv{u: 4.*X/d, v: 9.*Y/d} }
@@ -24,10 +8,11 @@ fn to_uv_D50(XYZ: XYZ<f32>) -> uv<f32> { uv(XYZ)-uv_D50 }
 fn XYZ(uv{u,v}: uv<f32>, Y: f32) -> XYZ<f32> { XYZ{X: (9.*u)/(4.*v)*Y, Y, Z: (12.-3.*u-20.*v)/(4.*v)*Y} }
 fn from_uv_D50(uv: uv<f32>, Y: f32) -> XYZ<f32> { XYZ(uv_D50+uv, Y) }
 
+mod time; use time::Profile;
 mod gain; use gain::*;
 mod adaptive_histogram_equalization; use adaptive_histogram_equalization::*;
 
-use vector::{xy, uint2, vec2, mulv, min};
+use vector::{xy, uint2, vec2, mat3, mulv, min};
 use image::{Image, XYZ, rgb, rgbf, rgba8, bilinear_sample, blur_3, oetf8_12, sRGB8_OETF12};
 use rawler::{rawsource::RawSource, get_decoder, RawImage, RawImageData, Orientation, decoders::{Camera, WellKnownIFD}, formats::tiff::{Entry, Value}};
 use rawler::{imgop::xyz::Illuminant::D65, tags::DngTag::OpcodeList2};
@@ -39,7 +24,6 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 	let RawImage{whitelevel, data: RawImageData::Integer(data), width, height, wb_coeffs: rcp_as_shot_neutral, orientation, camera: Camera{forward_matrix, ..}, ..}
 		= decoder.raw_image(file, &default(), false)? else {unimplemented!()};
 	let cfa = Image::new(xy{x: width as u32, y: height as u32}, data);
-	was("decode");
 	let tags = decoder.ifd(WellKnownIFD::VirtualDngRawTags)?.unwrap();
 	let &[white_level] = whitelevel.0.as_array().unwrap();
 	let as_shot_neutral = 1./rgbf::from(*rcp_as_shot_neutral.first_chunk().unwrap()); // FIXME: rawler: expose non-inverted
@@ -52,22 +36,45 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 	let Some(Entry{value: Value::Undefined(code), ..}) = tags.get_entry(OpcodeList2) else {panic!()};
 	let gain = gain(code);
 	let gain_map_scale = vec2::from(gain[0].size-uint2::from(1))/vec2::from(cfa.size/2-uint2::from(1))-vec2::from(f32::EPSILON);
+	was("decode");
 	// Demosaic
-	let mut image = Image::from_xy(cfa.size/2, |p| {
-		let [b, g10, g01, r] = [(0,[0,0]),(1,[1,0]),(2,[0,1]),(3,[1,1])].map(|(i,[x,y])| bilinear_sample(&gain[i], gain_map_scale*vec2::from(p)) * f32::from(cfa[p*2+xy{x,y}]));
-		mulv(forward, [r, (g01+g10)/2., b]).into()
-	});
+	mod vector_BGGR { vector::vector!(4 BGGR T T T T, b g10 g01 r, B G10 G01 R); } pub use vector_BGGR::BGGR;
+	let bggr = Image::from_xy(cfa.size/2, |p|
+		BGGR{b: (0,[0,0]), g10: (1,[1,0]), g01: (2,[0,1]), r: (3,[1,1])}.map(|(i,[x,y])| bilinear_sample(&gain[i], gain_map_scale*vec2::from(p)) * f32::from(cfa[p*2+xy{x,y}]))
+	);
+	let mut target = Image::uninitialized(cfa.size);
+	for y in 1..target.size.y/2-1 {
+		for x in 1..target.size.x/2-1 {
+			let bggr = |dx,dy| bggr[xy{x:x-1+dx,y:y-1+dy}];
+			let ref mut target = target.slice_mut(2*xy{x,y}, xy{x: 2, y: 2});
+			let b = |x,y| { assert_eq!(x%2,0); assert_eq!(y%2,0); bggr((2+x)/2,(2+y)/2).b };
+			let r = |x,y| { assert_eq!(x%2,1); assert_eq!(y%2,1); bggr((2+x)/2,(2+y)/2).r };
+			let g = |x,y| { let BGGR{g10,g01,..} = bggr((2+x)/2,(2+y)/2); match [x%2, y%2] { [1,0] => g10, [0,1] => g01, _ => unreachable!() } };
+			trait F = Fn(u32,u32)->f32;
+			fn rgb(target: &mut Image<&mut [XYZ<f32>]>, forward: mat3, x: u32, y: u32, r: impl F, g: impl F, b: impl F) {
+				target[xy{x,y}] = mulv(forward, [r(x,y), g(x,y), b(x,y)]).into();
+			}
+			fn horizontal(c: impl F) -> impl F { move |x,y| (c(x-1,y)+c(x+1,y))/2. }
+			fn vertical(c: impl F) -> impl F { move |x,y| (c(x,y-1)+c(x,y+1))/2. }
+			fn cardinal(c: impl F) -> impl F { move |x,y| (c(x,y-1)+c(x-1,y)+c(x+1,y)+c(x,y+1))/4. }
+			fn diagonal(c: impl F) -> impl F { move |x,y| (c(x-1,y-1)+c(x+1,y-1)+c(x-1,y+1)+c(x+1,y+1))/4. }
+			rgb(target, forward, 0,0, diagonal(r), cardinal(g), b);
+			rgb(target, forward, 1,0, vertical(r), g, horizontal(b));
+			rgb(target, forward, 0,1, horizontal(r), g, vertical(b));
+			rgb(target, forward, 1,1, r, cardinal(g), diagonal(b));
+		}
+	}
 	was("demosaic");
 	// Dehaze
-	let haze = blur_3::<512>(&image);
-	let min = if true { min(image.data.iter().zip(&haze.data).map(|(image, haze)| image/haze)).unwrap().into_iter().min_by(f32::total_cmp).unwrap() } else { 0. }; // ~ 1/4
-	image.mut_zip_map(&haze, |image, &haze| image-min*haze); // Scales haze correction to avoid negative values
+	let haze = blur_3::<1024>(&target);
+	let min = if true { min(target.data.iter().zip(&haze.data).map(|(image, haze)| image/haze)).unwrap().into_iter().min_by(f32::total_cmp).unwrap() } else { 0. }; // ~ 1/4
+	target.mut_zip_map(&haze, |image, &haze| image-min*haze); // Scales haze correction to avoid negative values
 	was("dehaze");
 	if true { // Adaptive Histogram Equalization
-		let radius = (std::cmp::max(image.size.x, image.size.y) - 1) / 2;
-		let contrast_limited = contrast_limited_adaptive_histogram_equalization(&image, radius);
-		assert_eq!(image.stride, contrast_limited.stride);
-		image.mut_zip_map(&contrast_limited, |XYZ@XYZ{Y,..}, &contrast_limited| {
+		let radius = (std::cmp::max(target.size.x, target.size.y) - 1) / 2;
+		let contrast_limited = contrast_limited_adaptive_histogram_equalization(&target, radius);
+		assert_eq!(target.stride, contrast_limited.stride);
+		target.mut_zip_map(&contrast_limited, |XYZ@XYZ{Y,..}, &contrast_limited| {
 			let L = contrast_limited as f32 / (radius+1+radius).pow(2) as f32;
 			assert!(L >= 0. && L <= 1.);
 			let XYZ@XYZ{Y,..} = if Y > 0. { L*XYZ/Y } else { XYZ };
@@ -77,6 +84,7 @@ pub fn load(path: impl AsRef<std::path::Path>) -> Result<Image<Box<[rgba8]>>, Bo
 		});
 		was("equalization");
 	}
+	let image = target;
 	// rotate map from XYZ to linear sRGB
 	const sRGB_from_XYZD50 : [[f32; 3]; 3] = [[3.1338561, -1.6168667, -0.4906146], [-0.9787684, 1.9161415, 0.0334540], [0.0719450, -0.2289914, 1.4052427]];
 	let image = image.map(|XYZ| rgb::from(mulv(sRGB_from_XYZD50, <[_; _]>::from(XYZ))));

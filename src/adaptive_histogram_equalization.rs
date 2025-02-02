@@ -16,7 +16,7 @@ pub fn contrast_limited_adaptive_histogram_equalization(image: &Image<impl AsRef
 	const fine : usize = core::simd::u32x64::LEN;
 	const Nbins : usize = coarse*fine;
 	//assert!(image.size.x <= image.size.y); // FIXME: benchmark compute vs bandwidth tradeoff
-	assert!(image.size.x as usize*(coarse*fine)*4 <= 32*1024*1024);
+	assert!(image.size.x as usize*(coarse*fine)*4 <= 64*1024*1024, "{image:?}");
 	let luminance = image.as_ref().map(|XYZ{Y,..}| (f32::ceil((Y-min)/(max-min)*(Nbins as f32)-1.)) as u16);
 	struct Histogram { sums: u32x64, bins: [u32x64; coarse] }
 	let mut columns = unsafe{Box::<[Histogram]>::new_zeroed_slice(luminance.size.x as usize).assume_init()};
